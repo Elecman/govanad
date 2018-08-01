@@ -12,21 +12,16 @@ import (
 
 func main() {
 	// parse the flags
-	head := flag.String("head", "", "Your wanted bitcoin vanity address head string, the first character '1' will be added automatically.")
-	pwd := flag.String("pw", "", "The password to encrypt your private key, do Not set if you want to get unencrypted private key. !! UNFINISHED FEATURE !!")
-	qrImg := flag.Bool("qr", false, "If you want to create QR code images?")
+	vh := flag.String("v", "", "Your wanted bitcoin vanity address head string, the first character '1' will be added automatically.")
+	pw := flag.String("p", "", "The password to encrypt your private key, do Not set if you want to get unencrypted private key. !! UNFINISHED FEATURE !!")
+	qr := flag.Bool("q", false, "Do you want to create the QR code images?")
+	tf := flag.Bool("t", false, "Do you want to create a text file that includes your keys & addersses?")
 	flag.Parse()
 
 	// set the address head
-	var wantHead = "1"
-	wantHead += *head
+	var vanityHead = "1" + *vh
 
-	// set the encrypt function
-	var encrp utils.Encryptor
-	(&encrp).SetPassword(pwd)
-
-	// clock the process
-	startTime := time.Now().Unix()
+	defer trace(vanityHead)()
 
 	// look for the specified vanity address
 	var bks utils.BtcKeySet
@@ -37,17 +32,41 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Gohoad looking for the vanity address failed: %v", err)
 			return
 		}
-		if strings.HasPrefix(addr, wantHead) {
+		if strings.HasPrefix(addr, vanityHead) {
 			break
 		}
 	}
 
-	// print result
-	fmt.Printf("Got the vanity address starts with \"%s\", time costs: %ds\n", wantHead, time.Now().Unix()-startTime)
-	(&bks).PrintKeyAddr(&encrp)
+	// set the encrypt function
+	var encrp utils.Encryptor
+	(&encrp).SetPassword(pw)
+	bks.Encrp = &encrp
+
+	timestamp := time.Now().Unix()
 
 	// create QR code images
-	if *qrImg {
-		(&bks).CreateQR(&encrp)
+	if *qr {
+		(&bks).CreateQR(timestamp)
+	}
+
+	// create text file
+	if *tf {
+		(&bks).CreateTxt(timestamp)
+	}
+
+	// print result to console if no file created
+	if !(*qr) && !(*tf) {
+		(&bks).PrintKeyAddr()
+	}
+}
+
+// trace Print start and end with timestamps
+func trace(msg string) func() {
+	layout := "2006-01-02 15:04:05"
+	start := time.Now()
+	fmt.Printf("[%s]: Start looking for the vanity address starts with \"%s\"\n\n", start.Format(layout), msg)
+	return func() {
+		end := time.Now()
+		fmt.Printf("\n[%s]: Stop looking for the vanity address, time costs: %s\n", end.Format(layout), time.Since(start))
 	}
 }

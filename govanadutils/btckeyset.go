@@ -4,7 +4,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"text/template"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
@@ -16,6 +18,7 @@ import (
 type BtcKeySet struct {
 	privKey *btcec.PrivateKey
 	pubKey  *btcec.PublicKey
+	Encrp   *Encryptor
 }
 
 // GenKeySet Generate a new bitcoin secret key set
@@ -35,7 +38,7 @@ func (bks *BtcKeySet) GenKeySet() {
 // format: ("decimal", "hex", "hex-compressed", "wif", "wif-compressed")
 func (bks *BtcKeySet) GetPrivKey(format string) (string, error) {
 	if bks.privKey == nil {
-		return "", errors.New("the private key is nil")
+		return "", errors.New("GetPrivKey: the private key is nil")
 	}
 	switch format {
 	case "decimal":
@@ -49,7 +52,7 @@ func (bks *BtcKeySet) GetPrivKey(format string) (string, error) {
 	case "wif-compressed":
 		return base58.CheckEncode(append(bks.privKey.Serialize(), 1), 128), nil
 	default:
-		return "", fmt.Errorf("%s is not a supported format", format)
+		return "", fmt.Errorf("GetPrivKey: \"%s\" is not a supported format", format)
 	}
 }
 
@@ -57,7 +60,7 @@ func (bks *BtcKeySet) GetPrivKey(format string) (string, error) {
 // format: ("hex", "hex-compressed", "point")
 func (bks *BtcKeySet) GetPubKey(format string) (string, error) {
 	if bks.pubKey == nil {
-		return "", errors.New("the public key is nil")
+		return "", errors.New("GetPubKey: the public key is nil")
 	}
 	switch format {
 	case "hex":
@@ -67,14 +70,14 @@ func (bks *BtcKeySet) GetPubKey(format string) (string, error) {
 	case "point":
 		return fmt.Sprintf("(X: %d, Y: %d)", bks.pubKey.X, bks.pubKey.Y), nil
 	default:
-		return "", fmt.Errorf("%s is not a supported format", format)
+		return "", fmt.Errorf("GetPubKey: \"%s\" is not a supported format", format)
 	}
 }
 
 // GetAddr Get the bitcoin address by the given key
 func (bks *BtcKeySet) GetAddr(isCompressed bool) (string, error) {
 	if bks.pubKey == nil {
-		return "", errors.New("the public key is nil")
+		return "", errors.New("GetAddr: the public key is nil")
 	}
 
 	var binPubKey []byte
@@ -87,67 +90,68 @@ func (bks *BtcKeySet) GetAddr(isCompressed bool) (string, error) {
 	return btcAddr, nil
 }
 
+// stringifyOutput stringify the vanity and output to the specified IO writer
+func (bks *BtcKeySet) stringifyOutput(out io.Writer) {
+	// get keys and addresses
+	var txtContent outputData
+	err := txtContent.setOutputData(bks)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "stringifyOutput failed: %v", err)
+		return
+	}
+
+	txtTmpl := template.Must(template.New("txt").Parse(tmpl))
+	txtTmpl.Execute(out, txtContent)
+}
+
+// CreateQR Create the QR code images
+func (bks *BtcKeySet) CreateQR(timestamp int64) {
+	encrp := *bks.Encrp
+
+	// create private key QR image
+	if wifPrivKey, err := encrp.Encrypt(bks, false); err != nil {
+		fmt.Fprintf(os.Stderr, "Creating private key QR image failed: %v", err)
+	} else {
+		privKeyImg := fmt.Sprintf("%d_qr_private_key.png", timestamp)
+		err = qrcode.WriteFile(wifPrivKey, qrcode.Medium, 256, privKeyImg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Creating bitcoin address QR image failed: %v", err)
+		}
+	}
+
+	// create bitcoin address QR image
+	if btcAddr, err := bks.GetAddr(false); err != nil {
+		fmt.Fprintf(os.Stderr, "Creating bitcoin address QR image failed: %v", err)
+	} else {
+		addrQRImg := fmt.Sprintf("%d_qr_bitcoin_addr.png", timestamp)
+		err = qrcode.WriteFile(btcAddr, qrcode.Medium, 256, addrQRImg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Creating bitcoin address QR image failed: %v", err)
+		}
+	}
+}
+
+// CreateTxt Create text file that includes keys and addresses
+func (bks *BtcKeySet) CreateTxt(timestamp int64) {
+	// create text file
+	fileName := fmt.Sprintf("%d_txt_keyaddr.txt", timestamp)
+	f, err := os.Create(fileName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Creating text file failed: %v", err)
+		return
+	}
+	defer f.Close()
+
+	// output
+	bks.stringifyOutput(f)
+}
+
 // PrintKeyAddr Print the vanity address and the associated key set
-func (bks *BtcKeySet) PrintKeyAddr(encrp *Encryptor) {
+func (bks *BtcKeySet) PrintKeyAddr() {
 	if bks.privKey == nil || bks.pubKey == nil {
 		return
 	}
 
-	// Private Key
-	fmt.Println("------ Private Key ------")
-	wifPrivKey, err := encrp.Encrypt(bks, false)
-	cmpWIFPrivKey, err := encrp.Encrypt(bks, true)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Printing private key failed: %v", err)
-		return
-	}
-	fmt.Printf("Private Key (WIF) is : %s\n", wifPrivKey)
-	fmt.Printf("Private Key Compressed (WIF) is: %s\n\n", cmpWIFPrivKey)
-
-	// Public Key
-	fmt.Println("------ Public Key ------")
-	hexPubKey, err := bks.GetPubKey("hex")
-	cmpHexPubKey, err := bks.GetPubKey("hex-compressed")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Printing public key failed: %v", err)
-		return
-	}
-	fmt.Printf("Public Key (hex) is:  %s\n", hexPubKey)
-	fmt.Printf("Compressed Public Key (hex) is:  %s\n\n", cmpHexPubKey)
-
-	// Bitcoin Addr
-	fmt.Println("------ Bitcoin Address ------")
-	btcAddr, err := bks.GetAddr(false)
-	cmpBTCAddr, err := bks.GetAddr(true)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Printing bitcoin address failed: %v", err)
-		return
-	}
-	fmt.Printf("Bitcoin Address (b58check) is:  %s\n", btcAddr)
-	fmt.Printf("Compressed Bitcoin Address (b58check) is:  %s\n\n", cmpBTCAddr)
-}
-
-// CreateQR Create the QR code images
-func (bks *BtcKeySet) CreateQR(encrp *Encryptor) {
-	btcAddr, err := bks.GetAddr(false)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Creating bitcoin address QR image failed: %v", err)
-		return
-	}
-
-	err = qrcode.WriteFile(btcAddr, qrcode.Medium, 256, "qr_bitcoin_addr.png")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Creating bitcoin address QR image failed: %v", err)
-	}
-
-	wifPrivKey, err := encrp.Encrypt(bks, false)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Creating private key QR image failed: %v", err)
-		return
-	}
-
-	err = qrcode.WriteFile(wifPrivKey, qrcode.Medium, 256, "qr_private_key.png")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Creating bitcoin address QR image failed: %v", err)
-	}
+	// output
+	bks.stringifyOutput(os.Stdout)
 }

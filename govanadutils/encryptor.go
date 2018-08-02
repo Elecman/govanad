@@ -48,13 +48,13 @@ func (e *Encryptor) EncryptPrivKey(bts *BtcKeySet, isCompressed bool) (string, e
 	return bts.GetPrivKey(encodeFormat)
 }
 
-// doEncrypt Do encryption with no EC multiply flag used (BIP0038)
+// bip38 Do encryption with no EC multiply flag used (BIP0038)
 func bip38(pw string, bks *BtcKeySet, isCompressed bool) (string, error) {
 	var flagByte byte
 	if isCompressed {
-		flagByte = 224
+		flagByte = byte(0xe0)
 	} else {
-		flagByte = 192
+		flagByte = byte(0xc0)
 	}
 
 	salt, err := getAddrHash(bks, isCompressed)
@@ -77,7 +77,7 @@ func bip38(pw string, bks *BtcKeySet, isCompressed bool) (string, error) {
 	copy(privKey[3:], salt)
 	copy(privKey[7:], encrypted)
 
-	return base58.CheckEncode((privKey), 0), nil // TODO: Something is wrong in this step (b58check encode)
+	return base58.Encode(addCheckSum(privKey)), nil
 }
 
 // getAddrHash Get the addresshash as a salt
@@ -91,12 +91,12 @@ func getAddrHash(bks *BtcKeySet, isCompressed bool) ([]byte, error) {
 	return completeHash[:4], nil
 }
 
-// hash256 Do SHA256(SHA256(input)).
-func hash256(input []byte) []byte {
+// hash256 Do SHA256(SHA256(in)).
+func hash256(in []byte) []byte {
 	h1 := sha256.New()
 	h2 := sha256.New()
 
-	h1.Write(input)
+	h1.Write(in)
 	h2.Write(h1.Sum(nil))
 
 	return h2.Sum(nil)
@@ -119,4 +119,10 @@ func encrypt(pk, d1, d2 []byte) ([]byte, error) {
 	c.Encrypt(e2, d1[16:])
 
 	return append(e1, e2...), nil
+}
+
+// addCheckSum add the checksum for a []byte
+func addCheckSum(in []byte) []byte {
+	out := append(in, hash256(in)[:4]...)
+	return out
 }

@@ -13,7 +13,7 @@ import (
 func main() {
 	// parse the flags
 	vh := flag.String("v", "", "Your wanted bitcoin vanity address head string, the first character '1' will be added automatically.")
-	pw := flag.String("p", "", "The password to encrypt your private key, do Not set if you want to get unencrypted private key. !! UNFINISHED FEATURE !!")
+	pw := flag.String("p", "", "The password to encrypt your private key, do Not set if you want to get unencrypted private key.")
 	qr := flag.Bool("q", false, "Do you want to create the QR code images?")
 	tf := flag.Bool("t", false, "Do you want to create a text file that includes your keys & addersses?")
 	flag.Parse()

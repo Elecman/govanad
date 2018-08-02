@@ -28,8 +28,8 @@ type outputData struct {
 func (od *outputData) setOutputData(bks *BtcKeySet) error {
 	var err error
 	encrp := *bks.Encrp
-	(*od).PrivKey, err = encrp.Encrypt(bks, false)
-	(*od).CmpPrivKey, err = encrp.Encrypt(bks, true)
+	(*od).PrivKey, err = encrp.EncryptPrivKey(bks, false)
+	(*od).CmpPrivKey, err = encrp.EncryptPrivKey(bks, true)
 	(*od).PubKey, err = bks.GetPubKey("hex")
 	(*od).CmpPubKey, err = bks.GetPubKey("hex-compressed")
 	(*od).BtcAddr, err = bks.GetAddr(false)
